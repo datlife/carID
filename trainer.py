@@ -45,19 +45,22 @@ def train():
 
   veri_dataset = VeRiDataset(root_dir=args.dataset_dir).load()
 
+  model = resnet50()
+  model.compile(
+    optimizer='adam',
+    loss=triplet_loss(margin=0.2),
+    metrics=[ap_distance, an_distance])
+
+  model.summary()
+
+  # Train / Logging
+
   train_input_fn, val_input_fn = veri_dataset.get_input_fn(
       is_training=True,
       batch_size=args.batch_size,
       shuffle=True,
       buffer_size=100)
 
-  model = resnet50().compile(
-    optimizer='adam',
-    loss=triplet_loss(margin=0.2),
-    metrics=[ap_distance, an_distance])
-  model.summary()
-
-  # Train / Logging
   model.fit_generator(
     generator=keras_generator(input_fn=train_input_fn),
     validation_data=keras_generator(input_fn=val_input_fn),
@@ -67,10 +70,6 @@ def train():
     callbacks=keras_callbacks(logdir=args.model_dir),
     workers=0,
     verbose=1)
-
-  # ##################
-  # Evaluate
-  # ##################
 
   print("---- Training Completed ----")
   return 0
