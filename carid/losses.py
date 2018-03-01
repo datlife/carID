@@ -31,6 +31,8 @@ def triplet_loss(margin=0.2):
     triplet_loss = tf.maximum(0.0, distance_ap - distance_an + margin)
     triplet_loss = tf.reduce_mean(triplet_loss)
 
+    # @TODO: how to deal with numerical instability?
+
     return triplet_loss
 
   return compute

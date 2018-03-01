@@ -1,3 +1,5 @@
+"""Train CarID model"""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -8,6 +10,26 @@ import tensorflow as tf
 
 from carid.losses import triplet_loss
 from carid.dataset import VeRiDataset
+
+
+def parse_args():
+  """ Parse command line arguments.
+
+  Returns
+    args - arguments object
+  """
+  parser = argparse.ArgumentParser(
+    description="Train a Car Re-identification model")
+  parser.add_argument(
+    "--training_labels", help="Path to training XML files.",
+    default=None, required=True)
+  parser.add_argument(
+    "--batch_size", help="Number of training instances for every iteration",
+    default=32)
+  parser.add_argument(
+    "--model_dir", help="Path to store log and trained model",
+    default=None)
+  return parser.parse_args()
 
 
 def train():
@@ -32,7 +54,8 @@ def train():
 
   model = tf.keras.Model(
     inputs=inputs,
-    outputs=[resnet50(input) for input in inputs])
+    outputs=[resnet50(input) for input in inputs],
+    name="CarReId_net")
 
   model.compile(
     optimizer='adam',
@@ -54,26 +77,6 @@ def train():
 
   print("---- Training Completed ----")
   return 0
-
-
-def parse_args():
-  """ Parse command line arguments.
-
-  Returns
-    args - arguments object
-  """
-  parser = argparse.ArgumentParser(
-    description="Train a Car Re-identification model")
-  parser.add_argument(
-    "--training_labels", help="Path to training XML files.",
-    default=None, required=True)
-  parser.add_argument(
-    "--batch_size", help="Number of training instances for every iteration",
-    default=32)
-  parser.add_argument(
-    "--model_dir", help="Path to store log and trained model",
-    default=None)
-  return parser.parse_args()
 
 
 if __name__ == '__main__':

@@ -8,6 +8,12 @@ from lxml import etree
 import tensorflow as tf
 
 
+class DataLoader(object):
+  """Base DataLoader
+
+  """
+
+
 class VeRiDataset(object):
   """VeRi Dataset Loader
 
@@ -24,6 +30,7 @@ class VeRiDataset(object):
       raise IOError("Cannot load %s" % self.path)
     with open(self.path, 'rb') as fio:
       xml_stream = fio.read()
+
     et = etree.fromstring(xml_stream)
     items = et.xpath('Items/Item')
     self.data = pd.DataFrame(
@@ -32,6 +39,17 @@ class VeRiDataset(object):
     return self
 
   def get_input_fn(self, is_training, batch_size, shuffle):
+    """Create a input function
+
+    Args:
+      is_training:
+      batch_size:
+      shuffle:
+
+    Returns:
+
+    """
+
     if self.data is None:
       raise ValueError("Data is currently empty. Did you call load()?")
 
@@ -43,25 +61,6 @@ class VeRiDataset(object):
     )
 
     dataset = dataset.shuffle(1000)
-    dataset = dataset.map(
-      lambda inputs, labels:
-        tuple(tf.py_func(self._read_data(is_training),
-                         [inputs, labels],
-                         [tf.uint8, labels.dtype]))
-    )
-    dataset = dataset.map(self._preprocess(is_training))
     dataset = dataset.make_one_shot_iterator().get_next()
 
     return dataset
-
-  def _read_data(self, is_training):
-    def read_image(image_path, labels):
-      image = cv2.imread(image_path, cv2.IMREAD_COLOR)
-      return image, labels
-    return read_image
-
-  def _preprocess(self, is_training):
-    def preprocess(image, labels):
-      return image, labels
-
-    return preprocess
