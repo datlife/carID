@@ -51,56 +51,53 @@ class VeRiDataset(object):
 
     return self
 
-  def get_input_fn(self, is_training, batch_size, shuffle, buffer_size=1000):
+  def get_input_fn(
+    self,
+    is_training,
+    batch_size,
+    shuffle,
+    buffer_size=200,
+    num_threads=4):
     """Create a input function
 
     Args:
-      is_training:
-      batch_size:
-      shuffle:
+      is_training: boolean
+      batch_size:  int
+      shuffle:     boolean
+      buffer_size: int
+      num_threads: int
 
     Returns:
 
     """
-
     if self.data is None:
       raise ValueError("Data is currently empty. Did you call load()?")
 
-    training, validation = train_test_split(self.data, test_size=0.3)
+    training_data, validation_data = train_test_split(
+      self.data,
+      test_size=0.3,
+      shuffle=True)
+
     # @TODO : create Transformer
+    input_funcs = [(
+      tf.data.Dataset.from_generator(
+        lambda: self.generator(
+          data_frames=data_frames,
+          is_training=is_training),
+        3 * (tf.float32,),
+        3 * (tf.TensorShape([None, None, 3]),)).
+      repeat().
+      prefetch(buffer_size).
+      map(self._preprocess(is_training), num_parallel_calls=mp.cpu_count()).
+      prefetch(buffer_size).
+      shuffle(buffer_size).
+      batch(batch_size).
+      make_one_shot_iterator().
+      get_next())
 
-    training_data = tf.data.Dataset.from_generator(
-      lambda: self.generator(
-        data_frames=training,
-        is_training=is_training),
-      3 * (tf.float32,),
-      3 * (tf.TensorShape([None, None, 3]),))
+    for data_frames in [training_data, validation_data]]
 
-    training_data = (training_data.prefetch(buffer_size).
-              map(self._preprocess(is_training),
-                  num_parallel_calls=mp.cpu_count()).
-              prefetch(buffer_size).
-              shuffle(buffer_size).
-              batch(batch_size).
-              make_one_shot_iterator().
-              get_next())
-
-    validataion_data = tf.data.Dataset.from_generator(
-      lambda: self.generator(
-        data_frames=validation,
-        is_training=False),
-      3 * (tf.float32,),
-      3 * (tf.TensorShape([None, None, 3]),))
-
-    validataion_data = (validataion_data.prefetch(buffer_size).
-              map(self._preprocess(is_training),
-                  num_parallel_calls=mp.cpu_count()).
-              prefetch(buffer_size).
-              batch(batch_size).
-              make_one_shot_iterator().
-              get_next())
-
-    return training_data, validataion_data
+    return input_funcs
 
   def _preprocess(self, is_training):
     """Preprocessor for VeriDataset
@@ -116,7 +113,7 @@ class VeRiDataset(object):
         'input_anchor':   anchor,
         'input_positive': positive,
         'input_negative': negative,
-      }, tf.random_normal([1, 1, 3]))
+      }, tf.random_normal([1, 1, 3])) # dummy labels
 
     return convert_to_dict
 

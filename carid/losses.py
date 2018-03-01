@@ -17,13 +17,16 @@ def triplet_loss(margin=0.2):
     * margin: a hyperameter (think SVM)
 
   Args:
-   margin:
+   margin: float
 
   Returns:
     triplet_loss - tf.float32 scalar
   """
   def compute(y_true, y_pred):
-    anchor, positive, negative = y_pred[0], y_pred[1], y_pred[2]
+    anchor, positive, negative = \
+      y_pred[:, 0, :, :], \
+      y_pred[:, 1, :, :], \
+      y_pred[:, 2, :, :]
 
     distance_ap = tf.reduce_sum(tf.square(anchor - positive), 1)
     distance_an = tf.reduce_sum(tf.square(anchor - negative), 1)

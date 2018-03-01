@@ -6,22 +6,23 @@ from __future__ import print_function
 
 import os
 import argparse
-import numpy as np
 import tensorflow as tf
 
 from carid.losses import triplet_loss
 from carid.dataset import VeRiDataset
+from carid.metrics import ap_distance, an_distance
 
 tf.logging.set_verbosity(tf.logging.DEBUG)
 # @TODO: config augmentation during training/testing
 
 
+
 def parse_args():
   """Command line arguments.
   """
-
   parser = argparse.ArgumentParser(
     description="Train a Car Re-identification model")
+
   parser.add_argument(
     "--dataset_dir", help="Path to dataset directory.",
     default=None, required=True)
@@ -38,18 +39,28 @@ def parse_args():
     default=None)
   return parser.parse_args()
 
+
 def train():
   args = parse_args()
 
   veri_dataset = VeRiDataset(root_dir=args.dataset_dir).load()
 
-  training_input_fn, validataion_input_fn = veri_dataset.get_input_fn(
+  train_input_fn, val_input_fn = veri_dataset.get_input_fn(
       is_training=True,
       batch_size=args.batch_size,
-      shuffle=True)
+      shuffle=True,
+      buffer_size=100)
 
-  model = build_model()
-  model.compile(optimizer='adam', loss=triplet_loss(margin=0.2))
+  model = build_model(feature_extractor=tf.keras.applications.ResNet50(
+    input_shape=(224, 224, 3),
+    include_top=False,))
+
+  model.compile(
+    optimizer='adam',
+    loss=triplet_loss(margin=0.2),
+    metrics=[ap_distance, an_distance])
+
+  model.summary()
 
   # Train / Logging
   callbacks = [
@@ -58,17 +69,18 @@ def train():
       write_graph=False),
 
     tf.keras.callbacks.ModelCheckpoint(
-      filepath=os.path.join(args.model_dir,'{epoch:02d}-{val_loss:.2f}.hdf5'),
+      filepath=os.path.join(args.model_dir, 'carid.weights'),
       monitor='val_loss',
-      save_best_only=True
-    )]
+      save_best_only=True,
+      save_weights_only=True)
+  ]
 
   model.fit_generator(
+    generator=keras_generator(input_fn=train_input_fn),
+    validation_data=keras_generator(input_fn=val_input_fn),
     epochs=args.steps,
-    steps_per_epoch=100,
-    generator=keras_generator(input_fn=training_input_fn),
-    validation_data=keras_generator(input_fn=validataion_input_fn),
-    validation_steps=100,
+    steps_per_epoch=50,
+    validation_steps=50,
     callbacks=callbacks,
     workers=0,
     verbose=1)
@@ -82,28 +94,31 @@ def train():
 
 def keras_generator(input_fn):
   K = tf.keras.backend
-
   while True:
     yield K.get_session().run(input_fn)
 
-def build_model():
+def build_model(feature_extractor, output_units=128):
   inputs = [tf.keras.Input(
     shape=(224, 224, 3),
     name="input_%s" % in_type)
     for in_type in ['anchor', 'positive', 'negative']]
 
-  resnet50 = tf.keras.applications.resnet50.ResNet50(
-    include_top=False,
-    input_shape=(224, 224, 3))
+  # features = tf.keras.layers.Dense(output_units)(feature_extractor.outputs[0])
+  # feature_extractor = tf.keras.Model(
+  #   inputs=feature_extractor.inputs,
+  #   outputs=features,
+  #   name="feature_extractor")
 
   outputs = tf.keras.layers.concatenate(
-    [resnet50(input) for input in inputs],
+    inputs=[feature_extractor(input) for input in inputs],
+    axis=1,
     name='output')
 
   model = tf.keras.Model(
     inputs=inputs,
     outputs=outputs,
     name="CarReId_net")
+
   return model
 
 if __name__ == '__main__':
