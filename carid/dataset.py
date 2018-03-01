@@ -3,6 +3,7 @@ r"""Dataset loader for Triplet Model
 """
 import os
 import cv2
+import abc
 import random
 import pandas as pd
 
@@ -12,52 +13,58 @@ import multiprocessing as mp
 from sklearn.model_selection import train_test_split
 
 
-class VeRiDataset(object):
-  """VeRi Dataset Loader
-
-  This dataset is for training vehicle re-identification model
-
-  Default attributes
-
-  FIELDS - a list of headers
-  TRAIN_XML - training label file
-  TRAIN_DIR - path to images for training
-
+class DataProvider(object):
+  """"Abstract base class for Dataset object
   """
-  TRAIN_XML = 'train_label.xml'
-  TRAIN_DIR = 'image_train'
-  FIELDS = ['vehicleID', 'imageName', 'typeID', 'cameraID']
+  __metaclass__ = abc.ABCMeta
 
   def __init__(self, root_dir):
-    self.data = None
-    self.root_dir = root_dir
+    """Constructor
 
-  def load(self):
-    """Parse XML and load data into `self.data`
+    Args:
+      root_dir: - String - absolute path
+        to dataset directory. It should contain all necessary training/testing
+        instances and labels.
     """
-    xml_file = os.path.join(self.root_dir, VeRiDataset.TRAIN_XML)
+    self.root_dir = root_dir
+    self.data = None
 
-    if not os.path.isfile(xml_file):
-      raise IOError("Cannot load %s" % path)
+  @abc.abstractmethod
+  def load(self):
+    """"Initialize `self.data` for other methods to use
+    """
+    pass
 
-    with open(xml_file, 'rb') as fio:
-      xml_stream = fio.read()
-    et = etree.fromstring(xml_stream)
+  @abc.abstractmethod
+  def preprocess(self, is_training):
+    """Define how to preprocess a single instance for
+    training/evaluation.
 
-    items = et.xpath('Items/Item')
-    self.data = pd.DataFrame(
-      [dict(item.attrib) for item in items],
-      columns=VeRiDataset.FIELDS)
+    Args:
+      is_training: a boolean
+      preprocess_func: a callable function
 
-    return self
+    Returns:
+      transformed features
+    """
+    pass
 
-  def get_input_fn(
-    self,
-    is_training,
-    batch_size,
-    shuffle,
-    buffer_size=200,
-    num_threads=4):
+  @abc.abstractmethod
+  def generator(self, data_frames):
+    """Determine how to generate a single instance (features, label) for
+    training/evaluation
+
+    Returns:
+      a generator - yields a single instance (features, label)
+    """
+    pass
+
+  def get_input_fn(self,
+                   is_training,
+                   batch_size,
+                   shuffle,
+                   buffer_size=200,
+                   num_threads=4):
     """Create a input function
 
     Args:
@@ -81,25 +88,61 @@ class VeRiDataset(object):
     # @TODO : create Transformer
     input_funcs = [(
       tf.data.Dataset.from_generator(
-        lambda: self.generator(
-          data_frames=data_frames,
-          is_training=is_training),
+        lambda: self.generator(data_frames=data_frames),
         3 * (tf.float32,),
         3 * (tf.TensorShape([None, None, 3]),)).
       repeat().
       prefetch(buffer_size).
-      map(self._preprocess(is_training), num_parallel_calls=mp.cpu_count()).
+      map(self.preprocess(is_training), num_parallel_calls=mp.cpu_count()).
       prefetch(buffer_size).
       shuffle(buffer_size).
       batch(batch_size).
       make_one_shot_iterator().
       get_next())
-
-    for data_frames in [training_data, validation_data]]
+    for data_frames in [training_data, validation_data]
+    ]
 
     return input_funcs
 
-  def _preprocess(self, is_training):
+
+class VeRiDataset(DataProvider):
+  """VeRi Dataset Loader
+
+  This dataset is for training vehicle re-identification model
+
+  Attributes:
+    FIELDS - a list of headers
+    TRAIN_XML - training label file
+    TRAIN_DIR - path to images for training
+
+  """
+  TRAIN_XML = 'train_label.xml'
+  TRAIN_DIR = 'image_train'
+  FIELDS = ['vehicleID', 'imageName', 'typeID', 'cameraID']
+
+  def __init__(self, root_dir):
+    super(VeRiDataset, self).__init__(root_dir)
+
+  def load(self):
+    """Parse XML and load data into `self.data`
+    """
+    xml_file = os.path.join(self.root_dir, VeRiDataset.TRAIN_XML)
+
+    if not os.path.isfile(xml_file):
+      raise IOError("Cannot load %s" % path)
+
+    with open(xml_file, 'rb') as fio:
+      xml_stream = fio.read()
+    et = etree.fromstring(xml_stream)
+
+    items = et.xpath('Items/Item')
+    self.data = pd.DataFrame(
+      [dict(item.attrib) for item in items],
+      columns=VeRiDataset.FIELDS)
+
+    return self
+
+  def preprocess(self, is_training):
     """Preprocessor for VeriDataset
 
     Args:
@@ -113,11 +156,11 @@ class VeRiDataset(object):
         'input_anchor':   anchor,
         'input_positive': positive,
         'input_negative': negative,
-      }, tf.random_normal([1, 1, 3])) # dummy labels
+      }, tf.random_normal([1, 1, 3]))  # dummy labels
 
     return convert_to_dict
 
-  def generator(self,data_frames, is_training):
+  def generator(self, data_frames):
     """Generate a triple instances.
 
     Given a list of instances with different object IDs,
@@ -129,8 +172,6 @@ class VeRiDataset(object):
 
     Args:
       data_frames - pandas.DataFrame
-      is_training -  Boolean
-
 
     Returns:
       generator - a data generator.
@@ -145,13 +186,12 @@ class VeRiDataset(object):
       ids = random.sample(group_names, 2)
       anchor, positive = groups.get_group(ids[0]).sample(2).to_dict('records')
       negative = groups.get_group(ids[1]).sample(1).to_dict('records')[0]
+
       anchor, positive, negative = [
-        cv2.resize(
-          cv2.imread(
-            os.path.join(data_dir, sample['imageName']),
-            cv2.IMREAD_COLOR),
+        cv2.resize(cv2.imread(
+          os.path.join(data_dir, sample['imageName']),
+          cv2.IMREAD_COLOR),
           (224, 224))
         for sample in [anchor, positive, negative]
       ]
-
       yield anchor, positive, negative
