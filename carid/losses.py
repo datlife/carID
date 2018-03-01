@@ -22,7 +22,7 @@ def triplet_loss(margin=0.2):
   Returns:
     triplet_loss - tf.float32 scalar
   """
-  def compute(y_true, y_pred):
+  def loss_func(y_true, y_pred):
     anchor, positive, negative = \
       y_pred[:, 0, :, :], \
       y_pred[:, 1, :, :], \
@@ -38,4 +38,4 @@ def triplet_loss(margin=0.2):
 
     return triplet_loss
 
-  return compute
+  return loss_func

@@ -99,16 +99,14 @@ class DataProvider(object):
       batch(batch_size).
       make_one_shot_iterator().
       get_next())
-    for data_frames in [training_data, validation_data]
-    ]
+      for data_frames in [training_data, validation_data]]
 
     return input_funcs
 
 
 class VeRiDataset(DataProvider):
-  """VeRi Dataset Loader
+  """Data Provider for VeRi, a vehicle re-identification Dataset.
 
-  This dataset is for training vehicle re-identification model
 
   Attributes:
     FIELDS - a list of headers
@@ -181,7 +179,7 @@ class VeRiDataset(DataProvider):
     groups = data_frames.groupby('vehicleID')
     group_names = groups.groups.keys()
 
-    data_dir = os.path.join(self.root_dir,VeRiDataset.TRAIN_DIR)
+    data_dir = os.path.join(self.root_dir, VeRiDataset.TRAIN_DIR)
     while True:
       ids = random.sample(group_names, 2)
       anchor, positive = groups.get_group(ids[0]).sample(2).to_dict('records')
@@ -195,3 +193,14 @@ class VeRiDataset(DataProvider):
         for sample in [anchor, positive, negative]
       ]
       yield anchor, positive, negative
+
+  def get_samples(self, num_samples=50, num_classes=None):
+    """Load
+
+    Args:
+      num_samples:
+      num_classes:
+
+    Returns:
+
+    """
