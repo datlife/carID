@@ -10,7 +10,6 @@ import os
 import argparse
 import keras
 import tensorflow as tf
-from tensorboard.plugins.projector import projector_plugin
 
 from carid.models import resnet50
 from carid.dataset import VeRiDataset
@@ -40,13 +39,32 @@ def visualize():
     outputs=tf.keras.layers.Lambda(
       lambda x: x, "embedding")(resnet50()(inputs)))
   model.compile('sgd', 'mse')
-  model.summary()
+  model.load_weights(args.weights)
 
   # Get embeddings
-  samples = veri_data.get_samples(num_samples=50, num_classes=10)
-
+  samples = veri_data.get_samples(per_class_samples=50, num_classes=20)
 
   return 0
+
+
+def create_sprite_image(samples, output_path):
+  """Create a giant image containing all the thumbnails for each sample.
+
+  According to the TF documentation, sprite image needs to be in row-first order
+  . For example,
+
+        |1   |2  |3  |4  |
+        |5   |6  |7  |8  |
+        |......
+
+  Args:
+    samples:
+    output_path:
+
+  Returns:
+
+  """
+  pass
 
 
 def parse_arguments():

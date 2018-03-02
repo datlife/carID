@@ -194,13 +194,23 @@ class VeRiDataset(DataProvider):
       ]
       yield anchor, positive, negative
 
-  def get_samples(self, num_samples=50, num_classes=None):
+  def get_samples(self, per_class_samples=50, num_classes=None):
     """Load
 
     Args:
-      num_samples:
+      per_class_samples:
       num_classes:
 
     Returns:
 
     """
+    groups = self.data.group_by('vehicleID')
+    groups_names = groups.groups.keys()
+
+    selected_classes = random.sample(groups_names, num_classes)
+    data_dir = os.path.join(self.root_dir, VeRiDataset.TRAIN_DIR)
+
+    samples = {}
+    for cls in selected_classes:
+      samples[cls] = groups.get_group(cls).sample(per_class_samples).to_dict('records')
+    return samples
