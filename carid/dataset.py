@@ -204,7 +204,7 @@ class VeRiDataset(DataProvider):
     Returns:
 
     """
-    groups = self.data.group_by('vehicleID')
+    groups = self.data.groupby('vehicleID')
     groups_names = groups.groups.keys()
 
     selected_classes = random.sample(groups_names, num_classes)
@@ -212,5 +212,6 @@ class VeRiDataset(DataProvider):
 
     samples = {}
     for cls in selected_classes:
-      samples[cls] = groups.get_group(cls).sample(per_class_samples).to_dict('records')
+      samples[cls] = groups.get_group(cls).sample(
+        per_class_samples, replace=True).to_dict('records')
     return samples

@@ -11,7 +11,6 @@ import argparse
 import keras
 import tensorflow as tf
 
-from carid.models import resnet50
 from carid.dataset import VeRiDataset
 
 
@@ -33,17 +32,19 @@ def visualize():
   veri_data = VeRiDataset(root_dir=args.data_dir).load()
 
   # Load model
-  inputs = tf.keras.layers.Input(shape=(224, 224, 3))
-  model = keras.models.Model(
-    inputs=inputs,
-    outputs=tf.keras.layers.Lambda(
-      lambda x: x, "embedding")(resnet50()(inputs)))
+  inputs   = tf.keras.layers.Input(shape=(224, 224, 3))
+  resnet50 = tf.keras.applications.ResNet50(include_top=False)
+  outputs  = tf.keras.layers.Lambda(lambda x: x, name="embedding")(resnet50(inputs))
+
+  model = tf.keras.models.Model(inputs, outputs)
   model.compile('sgd', 'mse')
   model.load_weights(args.weights)
+  model.summary()
 
   # Get embeddings
   samples = veri_data.get_samples(per_class_samples=50, num_classes=20)
-
+  for s in samples:
+    print(s, len(samples[s]), samples[s][0]['imageName'])
   return 0
 
 
@@ -81,6 +82,9 @@ def parse_arguments():
   parser.add_argument(
     "--num_points", help="Number of points per cluster.",
     type=int, default=50)
+
+  parser.add_argument(
+    "--weights", help="path to pretrained weight file")
 
   return parser.parse_args()
 
