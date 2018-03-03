@@ -190,8 +190,8 @@ class VeRiDataset(DataProvider):
           os.path.join(data_dir, sample['imageName']),
           cv2.IMREAD_COLOR),
           (224, 224))
-        for sample in [anchor, positive, negative]
-      ]
+        for sample in [anchor, positive, negative]]
+
       yield anchor, positive, negative
 
   def get_samples(self, per_class_samples=50, num_classes=None):

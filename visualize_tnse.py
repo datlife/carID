@@ -6,54 +6,101 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import cv2
 import os
 import argparse
-import keras
+import numpy as np
 import tensorflow as tf
 
 from carid.dataset import VeRiDataset
+from tensorboard.plugins import projector
 
-
-def construct_projector_summary(args):
-  config = projector_plugin.ProjectorConfig()
-  embed = config.embeddings.add()
-  embed.tensor_name = 'embedding:0'
-  embed.metadata_path = os.path.join(
-    args.logdir, 'projector/metadata.tsv')
-  embed.sprite.image_path = os.path.join(
-    args.model_dir, 'veri_sprite_10k.png')
-  embed.sprite.single_image_dim.extend([28, 28])
-
+NUM_CLASSES = 20
+PER_CLASS = 50
 
 def visualize():
   args = parse_arguments()
 
-  # Load data
+  train_dir = os.path.join(args.data_dir, VeRiDataset.TRAIN_DIR)
+  projector_dir = os.path.join(args.logdir, 'projector')
+
+  # Load data into memory
   veri_data = VeRiDataset(root_dir=args.data_dir).load()
+  samples = veri_data.get_samples(
+    per_class_samples=PER_CLASS,
+    num_classes=NUM_CLASSES)
 
   # Load model
-  inputs   = tf.keras.layers.Input(shape=(224, 224, 3))
-  resnet50 = tf.keras.applications.ResNet50(include_top=False)
-  outputs  = tf.keras.layers.Lambda(lambda x: x, name="embedding")(resnet50(inputs))
+  inputs = tf.keras.layers.Input(
+    shape=(224, 224, 3),
+    name="input_img")
+  resnet50 = tf.keras.applications.ResNet50(
+    include_top=False,
+    input_shape=(224, 224, 3))
+  outputs = tf.keras.layers.Lambda(
+    lambda x: x)(resnet50(inputs))
 
-  model = tf.keras.models.Model(inputs, outputs)
-  model.compile('sgd', 'mse')
+  model = tf.keras.models.Model(
+    inputs,
+    outputs)
+
   model.load_weights(args.weights)
-  model.summary()
 
-  # Get embeddings
-  samples = veri_data.get_samples(per_class_samples=50, num_classes=20)
-  for s in samples:
-    print(s, len(samples[s]), samples[s][0]['imageName'])
-  return 0
+  # Generate embeddings
+  embeddings = []
+  features, thumbnails = load_data(samples, train_dir, projector_dir)
+  for i in range(len(features)):
+    # shape = [1, 1, 2048]
+    output = model.predict(np.expand_dims(features[i], 0))[0]
+    embeddings.append(np.squeeze(np.squeeze(output, 0), 0))
+
+  # Convert thumbnails to giant image
+  sprite = create_sprite_image(np.array(thumbnails), rows=NUM_CLASSES)
+  cv2.imwrite(os.path.join(projector_dir, 'sprite.png'), sprite)
+
+  embedding_var = tf.Variable(
+    tf.stack(embeddings, axis=0),
+    trainable=False,
+    name='embedding')
+  with tf.Session() as sess:
+    print(embedding_var)
+
+    sess.run(embedding_var.initializer)
+    summary_writer = tf.summary.FileWriter(projector_dir)
+    config = projector.ProjectorConfig()
+
+    embed = config.embeddings.add()
+    embed.tensor_name = embedding_var.name
+    embed.metadata_path = os.path.join(projector_dir, 'metadata.tsv')
+    embed.sprite.image_path = os.path.join(projector_dir, 'sprite.png')
+
+    embed.sprite.single_image_dim.extend([28, 28])
+    projector.visualize_embeddings(summary_writer, config)
+
+    saver = tf.train.Saver([embedding_var])
+    saver.save(sess,
+               os.path.join(args.logdir, 'model.ckpt'), global_step=1)
 
 
-def create_sprite_image(samples, output_path):
+def load_data(samples, train_dir, projector_dir):
+  meta_data = open(os.path.join(projector_dir, 'metadata.tsv'), 'w')
+  features, thumbnails = [], []
+  for group in samples:
+    for instance in samples[group]:
+      img_path = os.path.join(train_dir, instance['imageName'])
+      image = cv2.resize(cv2.imread(img_path), (224, 224))
+      meta_data.write('{}\n'.format(group))
+      features.append(image)
+      thumbnails.append(cv2.resize(image, (28, 28)))
+  meta_data.close()
+  return features, thumbnails
+
+
+def create_sprite_image(thumbnails, rows):
   """Create a giant image containing all the thumbnails for each sample.
 
   According to the TF documentation, sprite image needs to be in row-first order
-  . For example,
-
+  . For example:
         |1   |2  |3  |4  |
         |5   |6  |7  |8  |
         |......
@@ -65,7 +112,13 @@ def create_sprite_image(samples, output_path):
   Returns:
 
   """
-  pass
+  import numpy as np
+
+  sprite = np.asarray(
+    np.split(np.asarray(thumbnails), rows)).transpose((1, 0, 2, 3, 4))
+  sprite = np.dstack(sprite)
+  sprite = np.vstack(sprite)
+  return sprite
 
 
 def parse_arguments():
