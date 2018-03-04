@@ -18,6 +18,7 @@ from tensorboard.plugins import projector
 NUM_CLASSES = 20
 PER_CLASS = 50
 
+
 def visualize():
   args = parse_arguments()
 
@@ -34,9 +35,11 @@ def visualize():
   inputs = tf.keras.layers.Input(
     shape=(224, 224, 3),
     name="input_img")
+
   resnet50 = tf.keras.applications.ResNet50(
     include_top=False,
     input_shape=(224, 224, 3))
+
   outputs = tf.keras.layers.Lambda(
     lambda x: x)(resnet50(inputs))
 
@@ -55,7 +58,7 @@ def visualize():
     embeddings.append(np.squeeze(np.squeeze(output, 0), 0))
 
   # Convert thumbnails to giant image
-  sprite = create_sprite_image(np.array(thumbnails), rows=NUM_CLASSES)
+  sprite = images_to_sprite(np.array(thumbnails), rows=NUM_CLASSES)
   cv2.imwrite(os.path.join(projector_dir, 'sprite.png'), sprite)
 
   embedding_var = tf.Variable(
@@ -96,21 +99,8 @@ def load_data(samples, train_dir, projector_dir):
   return features, thumbnails
 
 
-def create_sprite_image(thumbnails, rows):
+def images_to_sprite(thumbnails, rows):
   """Create a giant image containing all the thumbnails for each sample.
-
-  According to the TF documentation, sprite image needs to be in row-first order
-  . For example:
-        |1   |2  |3  |4  |
-        |5   |6  |7  |8  |
-        |......
-
-  Args:
-    samples:
-    output_path:
-
-  Returns:
-
   """
   import numpy as np
 

@@ -8,7 +8,7 @@ import os
 import argparse
 import tensorflow as tf
 
-from carid.models import resnet50
+from carid.models import resnet50_triplet
 from carid.losses import triplet_loss
 from carid.dataset import VeRiDataset
 from carid.metrics import ap_distance, an_distance
@@ -22,7 +22,7 @@ def train():
   veri_dataset = VeRiDataset(root_dir=args.dataset_dir).load()
 
   # Load model
-  model = resnet50()
+  model = resnet50_triplet()
   model.compile(
     optimizer='adam',
     loss=triplet_loss(margin=0.2),
@@ -31,10 +31,10 @@ def train():
 
   # Train / Logging
   train_input_fn, val_input_fn = veri_dataset.get_input_fn(
-      is_training=True,
-      batch_size=args.batch_size,
-      shuffle=True,
-      buffer_size=100)
+    is_training=True,
+    batch_size=args.batch_size,
+    shuffle=True,
+    buffer_size=100)
 
   model.fit_generator(
     generator=keras_generator(input_fn=train_input_fn),
@@ -83,6 +83,7 @@ def parse_args():
   parser.add_argument(
     "--steps", help="Number of training steps",
     default=1, type=int)
+
   parser.add_argument(
     "--batch_size", help="Number of training instances for every iteration",
     default=32, type=int)
@@ -90,6 +91,7 @@ def parse_args():
   parser.add_argument(
     "--model_dir", help="Path to store log and trained model",
     default=None)
+
   return parser.parse_args()
 
 

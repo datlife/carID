@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 
-def resnet50(input_shape=(224, 224, 3)):
+def resnet50_triplet(input_shape=(224, 224, 3)):
   """Construct a Triplet CarID model
 
   This model takes in 3 inputs: [Anchor, Positive, Negative], which are
