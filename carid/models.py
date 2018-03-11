@@ -1,14 +1,14 @@
 """Construct a CarID model"""
 import tensorflow as tf
 
-def carid_net(multi_gpu):
-  func = model_fn if not multi_gpu else \
+def resnet_carid(multi_gpu):
+  func = resnet50_model_fn if not multi_gpu else \
       tf.contrib.estimator.replicate_model_fn(
-          model_fn, tf.losses.Reduction.MEAN)
+         resnet50_model_fn, tf.losses.Reduction.MEAN)
   return func
 
 
-def model_fn(features, labels, mode, params):
+def resnet50_model_fn(features, labels, mode, params):
   """Model Function for tf.estimator.Estimator object
   Note that because of triplet loss training, we do not need labels
   """
@@ -21,9 +21,10 @@ def model_fn(features, labels, mode, params):
       include_top=False)
 
   anchor = model(features['anchor'])
-
   if mode == tf.estimator.ModeKeys.PREDICT:
-    predictions = model(features['anchor'])
+    predictions = {
+        'anchor': model(features['anchor'])
+    }
     return tf.estimator.EstimatorSpec(
         mode=mode,
         predictions=predictions)
@@ -64,39 +65,3 @@ def model_fn(features, labels, mode, params):
       loss=loss,
       train_op=train_ops,
       eval_metric_ops=metrics)
-
-
-def resnet50_triplet(input_shape=(224, 224, 3)):
-  """Construct a Triplet CarID model
-
-  This model takes in 3 inputs: [Anchor, Positive, Negative], which are
-  images
-
-  [Inputs] => [Feature Extractor (Resnet50)] ==> [Feature_map]
-
-  Args:
-    input_shape:
-
-  Returns:
-
-  """
-  feature_extractor = tf.keras.applications.ResNet50(
-    input_shape=input_shape,
-    include_top=False, )
-
-  inputs = [tf.keras.Input(
-    shape=input_shape,
-    name="input_%s" % in_type)
-    for in_type in ['anchor', 'positive', 'negative']]
-
-  outputs = tf.keras.layers.concatenate(
-    inputs=[feature_extractor(features) for features in inputs],
-    axis=1,
-    name='output')
-
-  carid = tf.keras.Model(
-    inputs=inputs,
-    outputs=outputs,
-    name="CarReId_net")
-
-  return carid

@@ -35,7 +35,7 @@ class DataProvider(object):
     pass
 
   @abc.abstractmethod
-  def preprocess(self, mode):
+  def preprocess(self, input_data, mode):
     """Preprocess function for inputs"""
     pass
 
@@ -70,7 +70,6 @@ class DataProvider(object):
   def get_input_fn(self,
                    mode,
                    data,
-                   epochs,
                    batch_size,
                    shuffle_buffer=200,
                    num_parallel_calls=4):
@@ -96,8 +95,7 @@ class DataProvider(object):
 
     if mode == tf.estimator.ModeKeys.TRAIN:
       dataset = dataset.shuffle(buffer_size=shuffle_buffer)
-
-    dataset = dataset.repeat(epochs)
+    dataset = dataset.repeat()
     if mode != tf.estimator.ModeKeys.PREDICT:
       dataset = dataset.map(
           lambda image: self.preprocess(mode),
@@ -160,23 +158,39 @@ class VeRiDataset(DataProvider):
 
     return self
 
-  def preprocess(self, mode):
+  def preprocess(self, input_data, mode):
     """Preprocessor for VeriDataset
 
     Args:
       mode: `tf.estimator.ModeKeys`
-
+      input_data:
     Returns:
 
     """
-    def convert_to_dict(anchor, positive, negative):
-      return ({
-        'anchor':   anchor,
-        'positive': positive,
-        'negative': negative,
-      }, tf.random_normal([1, 1, 3]))  # dummy labels
+    if mode == tf.estimator.ModeKeys.PREDICT:
+      return {'anchor': input_data}
 
-    return convert_to_dict
+    else:
+      return {
+          'anchor': input_data[0],
+          'positive': input_data[1],
+          'negative': input_data[2]}
+
+  def _parse_record(self, record, mode):
+
+    if mode == tf.estimator.ModeKeys.PREDICT:
+      img = cv2.imread(record, cv2.IMREAD_COLOR)
+      img = cv2.resize(img, (224, 224))
+      return img
+
+    else:  # train / eval
+      anchor_img, pos_img, neg_img = [
+          cv2.resize(
+              src=cv2.imread(filename, cv2.IMREAD_COLOR),
+              dsize=(224, 224))
+          for filename in record]
+
+      return anchor_img, pos_img, neg_img
 
   def generator(self, data_frames, mode):
     """Generate a triple instances.
