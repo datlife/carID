@@ -6,7 +6,7 @@ from __future__ import print_function
 import argparse
 import tensorflow as tf
 
-from carid.models import carid_net
+from carid.models import resnet_carid
 from carid.losses import triplet_loss
 from carid.dataset import VeRiDataset
 
@@ -27,7 +27,7 @@ def train():
   shuffle_buffer = 2e3
 
   # ########################
-  # Load CIFAR-10 dataset
+  # Load VeRi dataset
   # ########################
   veri_dataset = VeRiDataset(root_dir=args.dataset_dir)
 
@@ -35,7 +35,7 @@ def train():
   # Define a Classifier
   # ########################
   estimator = tf.estimator.Estimator(
-      model_fn=carid_net(multi_gpu=multi_gpu),
+      model_fn=resnet_carid(multi_gpu=multi_gpu),
       model_dir=args.model_dir,
       config=tf.estimator.RunConfig(),
       params={
@@ -59,7 +59,6 @@ def train():
         input_fn=lambda: veri_dataset.get_input_fn(
             mode=tf.estimator.ModeKeys.TRAIN,
             data=train_data,
-            epochs=None,
             batch_size=batch_size,
             shuffle_buffer=shuffle_buffer,
             num_parallel_calls=cpu_cores),
@@ -71,7 +70,6 @@ def train():
         input_fn=lambda: veri_dataset.get_input_fn(
             mode=tf.estimator.ModeKeys.EVAL,
             data=eval_data,
-            epochs=1,
             batch_size=batch_size,
             shuffle_buffer=None,
             num_parallel_calls=cpu_cores))
