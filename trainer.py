@@ -3,33 +3,35 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
 import argparse
 import tensorflow as tf
 
 from carid.models import resnet_carid
 from carid.losses import triplet_loss
 from carid.dataset import VeRiDataset
+from carid.ProgressBar import ProgressBarHook
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # or any {'0', '1', '2'}
 
-def train():
+def main():
   # ##########################
   # Configure hyper-parameters
   # ##########################
   args = parse_args()
-  batch_size = args.batch_size
-
+  batch_size = 16
   training_steps = args.steps
   steps_per_epoch = args.steps_per_epoch
   epochs_per_eval = 3
   training_epochs = int(training_steps // steps_per_epoch)
 
   cpu_cores = 8
-  multi_gpu = True
-  shuffle_buffer = 2e3
+  multi_gpu = False
+  shuffle_buffer = 128
 
   # ########################
   # Load VeRi dataset
   # ########################
-  veri_dataset = VeRiDataset(root_dir=args.dataset_dir)
+  veri_dataset = VeRiDataset(root_dir=args.dataset_dir).load()
 
   # ########################
   # Define a Classifier
@@ -62,16 +64,16 @@ def train():
             shuffle_buffer=shuffle_buffer,
             num_parallel_calls=cpu_cores),
         steps=steps_per_epoch * epochs_per_eval,
-        hooks=[])
+        hooks=[ProgressBarHook(epochs=10, steps_per_epoch=steps_per_epoch)])
 
-    print("Start evaluating...")
-    estimator.evaluate(
-        input_fn=lambda: veri_dataset.get_input_fn(
-            mode=tf.estimator.ModeKeys.EVAL,
-            data=eval_data,
-            batch_size=batch_size,
-            shuffle_buffer=None,
-            num_parallel_calls=cpu_cores))
+  #   print("Start evaluating...")
+  #   estimator.evaluate(
+  #       input_fn=lambda: veri_dataset.get_input_fn(
+  #           mode=tf.estimator.ModeKeys.EVAL,
+  #           data=eval_data,
+  #           batch_size=batch_size,
+  #           shuffle_buffer=None,
+  #           num_parallel_calls=cpu_cores))
 
   print("---- Training Completed ----")
   return 0
@@ -96,7 +98,7 @@ def parse_args():
     default=30e3, type=int)
 
   parser.add_argument(
-      "--steps_per_epochs", help="Number of iteration per epochs",
+      "--steps_per_epoch", help="Number of iteration per epochs",
       default=1e3, type=int)
 
   parser.add_argument(
@@ -107,4 +109,4 @@ def parse_args():
 
 
 if __name__ == '__main__':
-  train()
+  main()
