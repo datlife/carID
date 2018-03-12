@@ -49,7 +49,6 @@ def train():
   # #########################
   # Training/Eval
   # #########################
-
   for _ in range(training_epochs // epochs_per_eval):
     train_data, eval_data = veri_dataset.split_training_data(
         test_size=0.3,
@@ -91,6 +90,10 @@ def parse_args():
   parser.add_argument(
       "--batch_size", help="Number of training instances for every iteration",
       default=256, type=int)
+
+  parser.add_argument(
+    "--steps", help="Number of iteration per epochs",
+    default=30e3, type=int)
 
   parser.add_argument(
       "--steps_per_epochs", help="Number of iteration per epochs",
