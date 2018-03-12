@@ -14,25 +14,22 @@ def resnet50_model_fn(features, labels, mode, params):
   Note that because of triplet loss function, we do not need labels
   """
   # Determine if model should update weights
+  tf.keras.backend.set_learning_phase(mode == tf.estimator.ModeKeys.TRAIN)
 
   outputs = []
   for name in features:
     features[name].set_shape(shape=(None, None, None, 3))
-    input_tensor = tf.keras.Input(tensor=features[name])
-
+    # hacky way to allow keras accept multiple inputs
     with tf.variable_scope('car_id', reuse=tf.AUTO_REUSE):
       model = tf.keras.applications.ResNet50(
-          input_tensor=input_tensor,
+          input_tensor=tf.keras.Input(tensor=features[name]),
           include_top=False,
           pooling='avg',
           weights=None)
-
     outputs.append(model(features[name]))
 
   positive, anchor, negative = outputs
-  # Compute Triplet Loss
   loss = params['loss_function'](anchor, positive, negative, params['margin'])
-  # Create predictions and metrics
   predictions = {
       'anchor': anchor,
       'positive': positive,
@@ -42,14 +39,11 @@ def resnet50_model_fn(features, labels, mode, params):
       'ap_distance': tf.metrics.mean_squared_error(anchor, positive),
       'an_distance': tf.metrics.mean_squared_error(anchor, negative)}
 
-  tf.keras.backend.set_learning_phase(mode == tf.estimator.ModeKeys.TRAIN)
   if mode == tf.estimator.ModeKeys.TRAIN:
     global_step = tf.train.get_or_create_global_step()
     optimizer = params['optimizer'](params['learning_rate'])
-
     if params['multi_gpu']:
       optimizer = tf.contrib.estimator.TowerOptimizer(optimizer)
-
     # for batch_norm
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     with tf.control_dependencies(update_ops):

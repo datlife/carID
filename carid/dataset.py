@@ -141,6 +141,7 @@ class VeRiDataset(DataProvider):
       image_string = tf.read_file(filename)
       image = tf.image.decode_image(image_string)
       image = tf.image.resize_image_with_crop_or_pad(image, 224, 224)
+      image = tf.to_float(image)
       return image
 
     features = tf.map_fn(
