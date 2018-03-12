@@ -73,37 +73,21 @@ class DataProvider(object):
                    batch_size,
                    shuffle_buffer=200,
                    num_parallel_calls=4):
-    """Create a input function
-
-    Args:
-      mode:
-      data:
-      epochs:
-      batch_size:
-      shuffle_buffer:
-      num_parallel_calls:
-
-    Returns:
-
-    """
+    """Create a input function"""
     dataset = tf.data.Dataset.from_generator(
-        generator=lambda: self.generator(data_frames=data),
-        output_types=3 * (tf.float32,),
-        output_shapes=3 * (tf.TensorShape([None, None, 3]),))
+        generator=lambda: self.generator(data_frames=data, mode=mode),
+        output_types=tf.string,
+        output_shapes=(tf.TensorShape([None])))
 
     dataset = dataset.prefetch(buffer_size=batch_size)
-
     if mode == tf.estimator.ModeKeys.TRAIN:
       dataset = dataset.shuffle(buffer_size=shuffle_buffer)
+
     dataset = dataset.repeat()
-    if mode != tf.estimator.ModeKeys.PREDICT:
-      dataset = dataset.map(
-          lambda image: self.preprocess(mode),
-          num_parallel_calls=num_parallel_calls)
-    else:
-      dataset = dataset.map(
-          lambda image, label: self.preprocess(mode),
-          num_parallel_calls=num_parallel_calls)
+    dataset = dataset.map(
+        map_func=lambda record: self._parse_record(record, mode),
+        num_parallel_calls=num_parallel_calls)
+
     dataset = dataset.batch(batch_size)
     dataset = dataset.prefetch(1)
 
@@ -112,12 +96,10 @@ class DataProvider(object):
   def split_training_data(self, test_size, shuffle=False):
     if self.data is None:
       raise ValueError("Data is currently empty. Did you call load()?")
-
     training_data, validation_data = train_test_split(
         self.data,
         test_size=test_size,
         shuffle=shuffle)
-
     return training_data, validation_data
 
 
@@ -142,21 +124,44 @@ class VeRiDataset(DataProvider):
     """Parse XML and load data as `pd.DataFrames` into `self.data`
     """
     xml_file = os.path.join(self.root_dir, VeRiDataset.TRAIN_XML)
-
     if not os.path.isfile(xml_file):
-      raise IOError("Cannot load %s" % path)
-
+      raise IOError("Cannot load %s" % xml_file)
     with open(xml_file, 'rb') as fio:
       xml_stream = fio.read()
-
     et = etree.fromstring(xml_stream)
     items = et.xpath('Items/Item')
-
     self.data = pd.DataFrame(
         [dict(item.attrib) for item in items],
         columns=VeRiDataset.FIELDS)
-
     return self
+
+  def _parse_record(self, record, mode):
+
+    def read_resize(filename):
+      image_string = tf.read_file(filename)
+      image = tf.image.decode_image(image_string)
+      image = tf.image.resize_image_with_crop_or_pad(image, 224, 224)
+      return image
+
+    features = tf.map_fn(
+        fn=read_resize,
+        elems=record,
+        dtype=tf.float32
+    )
+
+    if mode == tf.estimator.ModeKeys.PREDICT:
+      anchor = tf.identity(features[0], 'anchor')
+
+      return {'anchor': anchor}
+    else:
+      anchor = tf.identity(features[0], 'anchor')
+      positive = tf.identity(features[1], 'positive')
+      negative = tf.identity(features[2], 'negative')
+      return {
+        'anchor': anchor,
+        'positive': positive,
+        'negative': negative
+      }
 
   def preprocess(self, input_data, mode):
     """Preprocessor for VeriDataset
@@ -167,30 +172,8 @@ class VeRiDataset(DataProvider):
     Returns:
 
     """
-    if mode == tf.estimator.ModeKeys.PREDICT:
-      return {'anchor': input_data}
+    return input_data
 
-    else:
-      return {
-          'anchor': input_data[0],
-          'positive': input_data[1],
-          'negative': input_data[2]}
-
-  def _parse_record(self, record, mode):
-
-    if mode == tf.estimator.ModeKeys.PREDICT:
-      img = cv2.imread(record, cv2.IMREAD_COLOR)
-      img = cv2.resize(img, (224, 224))
-      return img
-
-    else:  # train / eval
-      anchor_img, pos_img, neg_img = [
-          cv2.resize(
-              src=cv2.imread(filename, cv2.IMREAD_COLOR),
-              dsize=(224, 224))
-          for filename in record]
-
-      return anchor_img, pos_img, neg_img
 
   def generator(self, data_frames, mode):
     """Generate a triple instances.
@@ -215,25 +198,25 @@ class VeRiDataset(DataProvider):
     data_dir = os.path.join(self.root_dir, VeRiDataset.TRAIN_DIR)
 
     def training_generator():
-      # randomly sample two groups
-      ids = random.sample(group_names, 2)
-      anchor, positive = groups.get_group(ids[0]).sample(2).to_dict('records')
-      negative = groups.get_group(ids[1]).sample(1).to_dict('records')[0]
-      anchor, positive, negative = [
-        os.path.join(data_dir, sample['imageName'])
-        for sample in [anchor, positive, negative]]
-
-      yield anchor, positive, negative
+      while True:
+        # randomly sample two groups
+        ids = random.sample(group_names, 2)
+        anchor, positive = groups.get_group(ids[0]).sample(2).to_dict('records')
+        negative = groups.get_group(ids[1]).sample(1).to_dict('records')[0]
+        anchor, positive, negative = [
+            os.path.join(data_dir, sample['imageName'])
+            for sample in [anchor, positive, negative]]
+        yield [anchor, positive, negative]
 
     def inference_generator():
-      for row in data_frames.iterrows():
-        record = row.to_dict('record')
-        yield os.path.join(data_dir, record['imageName'])
+      for sample in data_frames.to_dict(orient='records'):
+        anchor = os.path.join(data_dir, sample['imageName'])
+        yield [anchor]
 
-    while True:
-      if mode == tf.estimator.ModeKeys.PREDICT:
-        inference_generator()
-      else:
-        training_generator()
+    if mode == tf.estimator.ModeKeys.PREDICT:
+      return inference_generator()
+    else:
+      return training_generator()
+
 
 
