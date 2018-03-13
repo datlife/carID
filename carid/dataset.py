@@ -79,7 +79,7 @@ class DataProvider(object):
         output_types=tf.string,
         output_shapes=(tf.TensorShape([None])))
 
-    dataset = dataset.prefetch(buffer_size=batch_size)
+    dataset = dataset.prefetch(buffer_size=batch_size*2)
     if mode == tf.estimator.ModeKeys.TRAIN:
       dataset = dataset.shuffle(buffer_size=shuffle_buffer)
 
@@ -147,12 +147,10 @@ class VeRiDataset(DataProvider):
     features = tf.map_fn(
         fn=read_resize,
         elems=record,
-        dtype=tf.float32
-    )
+        dtype=tf.float32)
 
     if mode == tf.estimator.ModeKeys.PREDICT:
       anchor = tf.identity(features[0], 'anchor')
-
       return {'anchor': anchor}
     else:
       anchor = tf.identity(features[0], 'anchor')
@@ -174,7 +172,6 @@ class VeRiDataset(DataProvider):
 
     """
     return input_data
-
 
   def generator(self, data_frames, mode):
     """Generate a triple instances.
@@ -202,7 +199,8 @@ class VeRiDataset(DataProvider):
       while True:
         # randomly sample two groups
         ids = random.sample(group_names, 2)
-        anchor, positive = groups.get_group(ids[0]).sample(2).to_dict('records')
+        anchor, positive = groups.get_group(
+            ids[0]).sample(2, relace=True).to_dict('records')
         negative = groups.get_group(ids[1]).sample(1).to_dict('records')[0]
         anchor, positive, negative = [
             os.path.join(data_dir, sample['imageName'])

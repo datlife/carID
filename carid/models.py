@@ -15,29 +15,28 @@ def resnet50_model_fn(features, labels, mode, params):
   """
   # Determine if model should update weights
   tf.keras.backend.set_learning_phase(mode == tf.estimator.ModeKeys.TRAIN)
-
-  outputs = []
+  outputs = {}
   for name in features:
-    features[name].set_shape(shape=(None, None, None, 3))
-    # hacky way to allow keras accept multiple inputs
+    features[name].set_shape((None, None, None, 3))
     with tf.variable_scope('car_id', reuse=tf.AUTO_REUSE):
       model = tf.keras.applications.ResNet50(
           input_tensor=tf.keras.Input(tensor=features[name]),
           include_top=False,
-          pooling='avg',
           weights=None)
-    outputs.append(model(features[name]))
+    outputs[name] = model(features[name])
+  if mode == tf.estimator.ModeKeys.PREDICT:
+    predictions = {'anchor': outputs['anchor']}
+    return tf.estimator.EstimatorSpec(
+        mode=mode,
+        predictions=predictions)
 
-  positive, anchor, negative = outputs
-  loss = params['loss_function'](anchor, positive, negative, params['margin'])
-  predictions = {
-      'anchor': anchor,
-      'positive': positive,
-      'negative': negative}
-
-  metrics = {
-      'ap_distance': tf.metrics.mean_squared_error(anchor, positive),
-      'an_distance': tf.metrics.mean_squared_error(anchor, negative)}
+  positive, anchor, negative = [outputs[i]
+                                for i in ['anchor', 'positive', 'negative']]
+  # compute triplet loss
+  distance_ap = tf.reduce_sum(tf.square(anchor - positive), 1)
+  distance_an = tf.reduce_sum(tf.square(anchor - negative), 1)
+  loss = tf.maximum(0.0, distance_ap - distance_an + params['margin'])
+  loss = tf.reduce_mean(loss)
 
   if mode == tf.estimator.ModeKeys.TRAIN:
     global_step = tf.train.get_or_create_global_step()
@@ -51,10 +50,26 @@ def resnet50_model_fn(features, labels, mode, params):
   else:
     train_ops = None
 
+  predictions = {
+    'anchor': anchor,
+    'positive': positive,
+    'negative': negative}
+
+  tf.identity(loss, 'train_loss')
+  tf.summary.scalar('train_loss', loss)
+
+  ap_dist = tf.reduce_mean(distance_ap)
+  tf.identity(ap_dist, 'train_ap_dist')
+  tf.summary.scalar('train_ap_dist', ap_dist)
+
+  an_dist = tf.reduce_mean(distance_an)
+  tf.identity(an_dist, 'train_an_dist')
+  tf.summary.scalar('train_an_dist', an_dist)
+
   return tf.estimator.EstimatorSpec(
       mode=mode,
       predictions=predictions,
       loss=loss,
       train_op=train_ops,
-      eval_metric_ops=metrics)
+      eval_metric_ops={})
 
