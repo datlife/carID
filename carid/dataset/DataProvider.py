@@ -29,40 +29,11 @@ class DataProvider(object):
     pass
 
   @abc.abstractmethod
-  def preprocess(self, input_data, mode):
-    """Preprocess function for inputs"""
-    pass
-
-  @abc.abstractmethod
-  def _parse_record(self, record, mode):
-    """Parse data record into training instance
-
-    It is usually helpful for large dataset. A record might contain meta-data
-    such as filenames and labels. This allows us to take advantage of parallel
-    processing tf.Dataset, instead of consecutively reading images from disk.
-
-    Args:
-      record:
-      mode:
-    Returns:
-    """
-    pass
-
-  @abc.abstractmethod
-  def generator(self, data_frames, mode):
-    """Determine how to generate a single instance (features, label) for
-    training/evaluation
-
-    Returns:
-      a generator - yields a single instance (features, label)
-    """
-    pass
-
-  @abc.abstractmethod
   def get_input_fn(self,
                    mode,
                    data,
                    batch_size,
+                   parse_record_fn,
                    shuffle_buffer=200,
                    num_parallel_calls=4):
     """Create a input function"""

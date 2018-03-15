@@ -21,8 +21,7 @@ class VeRiDataset(DataProvider):
   TRAIN_DIR = 'image_train'
   FIELDS = ['vehicleID', 'imageName', 'typeID', 'cameraID']
 
-  def __init__(self, root_dir, preprocess_func):
-    self.preprocess_func = preprocess_func
+  def __init__(self, root_dir):
     super(VeRiDataset, self).__init__(root_dir)
 
   def load(self):
@@ -41,117 +40,69 @@ class VeRiDataset(DataProvider):
     print('Loaded %s training instances from VeRi Dataset' % len(self.data))
     return self
 
-  def _parse_record(self, record, mode):
-
-    def read_resize(filename):
-      image_string = tf.read_file(filename)
-      image = tf.image.decode_image(image_string, channels=3)
-      image = tf.to_float(image)
-      image = tf.image.resize_image_with_crop_or_pad(image, 224, 224)
-      image = self.preprocess(image, mode)
-      return image
-
-    features = tf.map_fn(
-        fn=read_resize,
-        elems=record,
-        dtype=tf.float32)
-
-    if mode == tf.estimator.ModeKeys.PREDICT:
-      return {'anchor': features[0]}
-    else:
-      return {
-          'anchor': features[0],
-          'positive': features[1],
-          'negative': features[2]}
-
-  def preprocess(self, image, mode):
-    """Preprocessor for VeriDataset
-    Args:
-      image: a Tensor - shape [height, width, channel]
-      mode: `tf.estimator.ModeKeys`
-    Returns:
-    """
-    return self.preprocess_func(image, mode)
-
   def get_input_fn(self,
                    mode,
-                   data,
+                   dataset,
                    batch_size,
+                   parse_fn,
                    shuffle_buffer=200,
                    num_parallel_calls=4):
-    """Create input_fn"""
-    dataset = tf.data.Dataset.from_generator(
-        generator=lambda: self.generator(data_frames=data, mode=mode),
-        output_types=tf.string,
-        output_shapes=(tf.TensorShape([None])))
-    dataset = dataset.prefetch(buffer_size=batch_size)
+    """
 
-    if mode == tf.estimator.ModeKeys.TRAIN:
-      dataset = dataset.shuffle(buffer_size=shuffle_buffer)
+    Args:
+      mode:
+      dataset:
+      batch_size:
+      parse_fn:
+      shuffle_buffer:
+      num_parallel_calls:
 
-    # dataset = dataset.repeat()
-    dataset = dataset.map(
-      map_func=lambda record: self._parse_record(record, mode),
-      num_parallel_calls=num_parallel_calls)
+    Returns:
+
+    """
+    data_dir = os.path.join(self.root_dir, VeRiDataset.TRAIN_DIR)
+    dataset['imageName'] = dataset['imageName'].apply(
+        lambda i: os.path.join(data_dir, i))
+
+    dataset = tf.data.Dataset.from_tensor_slices((list(dataset['imageName']),
+                                                  list(dataset['vehicleID'])))
+
+    # dataset = tf.data.Dataset.from_generator(
+    #   generator=lambda: self.batch_hard_generator(
+    #       data_frames=dataset,
+    #       mode=mode,
+    #       batch_size=batch_size,
+    #       samples_per_class=8),
+    #   output_types=(tf.string, tf.int64),
+    #   output_shapes=(tf.TensorShape([None]), tf.TensorShape([None])))
+
+    dataset = dataset.prefetch(batch_size)
     dataset = dataset.batch(batch_size)
+    dataset = dataset.map(
+        map_func=lambda batch, batch_labels:
+            tuple([tf.map_fn(fn=lambda filename: parse_fn(filename, mode),
+                             elems=batch, dtype=tf.float32),
+                   batch_labels]),
+        num_parallel_calls=8)
     dataset = dataset.prefetch(1)
+
     return dataset
 
-  def batch_hard_generator(self, data_frames, mode):
+  def batch_hard_generator(self, data_frames, mode, batch_size, samples_per_class=8):
+    """ Sample P classes, each class contains K samples.  """
+
+    data_dir = os.path.join(self.root_dir, VeRiDataset.TRAIN_DIR)
+    data_frames['imageName'] = data_frames['imageName'].apply(
+        lambda i: os.path.join(data_dir, i))
 
     groups = data_frames.groupby('vehicleID')
     groups_name = groups.groups.keys()
-    data_dir = os.path.join(self.root_dir, VeRiDataset.TRAIN_DIR)
+    num_classes = batch_size // samples_per_class
 
-    # Sample P classes, each class contains K samples.
-    ids = random.sample(groups_name, 10)
+    while True:
+      ids = random.sample(groups_name, num_classes)
+      df = pd.concat([groups.get_group(idx).sample(
+          samples_per_class, replace=True)
+          for idx in ids])
 
-    for id in ids:
-      instances = groups.get_group(id).sample(30, replace=True)
-      instances = [os.path.join(data_dir, i['imageName'])
-                   for i in instances.to_dict('record')]
-
-  def generator(self, data_frames, mode):
-    """Generate a triple instances.
-
-    Given a list of instances with different object IDs,
-    this method would generate a triplet (anchor, positive, negative)
-    instances for every iteration such that:
-
-    * Anchor and positive instances have the same Object ID.
-    * Negative instance have a object_id different than anchor, positive
-
-    Args:
-      df - pandas.DataFrame
-      mode:
-
-    Returns:
-      generator - a data generator.
-
-    """
-    groups = data_frames.groupby('vehicleID')
-    group_names = groups.groups.keys()
-    data_dir = os.path.join(self.root_dir, VeRiDataset.TRAIN_DIR)
-
-    def training_generator():
-      while True:
-        # randomly sample two groups
-        ids = random.sample(group_names, 2)
-        anchor, positive = groups.get_group(ids[0]).sample(2, replace=True).to_dict('records')
-        negative = groups.get_group(ids[1]).sample(1).to_dict('records')[0]
-        anchor, positive, negative = [
-            os.path.join(data_dir, sample['imageName'])
-            for sample in [anchor, positive, negative]]
-
-        yield [anchor, positive, negative]
-
-    def inference_generator():
-      for sample in data_frames.to_dict(orient='records'):
-        anchor = os.path.join(data_dir, sample['imageName'])
-
-        yield [anchor]
-
-    if mode == tf.estimator.ModeKeys.PREDICT:
-      return inference_generator()
-    else:
-      return training_generator()
+      yield list(df['imageName']), list(df['vehicleID'])
