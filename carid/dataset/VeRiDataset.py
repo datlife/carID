@@ -45,6 +45,7 @@ class VeRiDataset(DataProvider):
                    dataset,
                    batch_size,
                    parse_fn,
+                   steps_per_epoch,
                    shuffle_buffer=200,
                    num_parallel_calls=4):
     """
@@ -60,12 +61,19 @@ class VeRiDataset(DataProvider):
     Returns:
 
     """
-    data_dir = os.path.join(self.root_dir, VeRiDataset.TRAIN_DIR)
-    dataset['imageName'] = dataset['imageName'].apply(
-        lambda i: os.path.join(data_dir, i))
 
-    dataset = tf.data.Dataset.from_tensor_slices((list(dataset['imageName']),
-                                                  list(dataset['vehicleID'])))
+    train_eval_gen = self.batch_hard_generator(
+        data_frames=dataset,
+        mode=mode,
+        batch_size=batch_size,
+        samples_per_class=8)
+
+    training_instances = [next(train_eval_gen) for i in range(steps_per_epoch)]
+    paths, labels = zip(*training_instances)
+    paths = [a for i in paths for a in i]
+    labels = [a for i in labels for a in i]
+
+    dataset = tf.data.Dataset.from_tensor_slices((paths, labels))
 
     # dataset = tf.data.Dataset.from_generator(
     #   generator=lambda: self.batch_hard_generator(
@@ -74,16 +82,13 @@ class VeRiDataset(DataProvider):
     #       batch_size=batch_size,
     #       samples_per_class=8),
     #   output_types=(tf.string, tf.int64),
-    #   output_shapes=(tf.TensorShape([None]), tf.TensorShape([None])))
+    #   output_shapes=(tf.TensorShape([]), tf.TensorShape([])))
 
     dataset = dataset.prefetch(batch_size)
-    dataset = dataset.batch(batch_size)
     dataset = dataset.map(
-        map_func=lambda batch, batch_labels:
-            tuple([tf.map_fn(fn=lambda filename: parse_fn(filename, mode),
-                             elems=batch, dtype=tf.float32),
-                   batch_labels]),
+        lambda filename, label: parse_fn(filename, label, mode),
         num_parallel_calls=8)
+    dataset = dataset.batch(batch_size)
     dataset = dataset.prefetch(1)
 
     return dataset
@@ -106,3 +111,4 @@ class VeRiDataset(DataProvider):
           for idx in ids])
 
       yield list(df['imageName']), list(df['vehicleID'])
+

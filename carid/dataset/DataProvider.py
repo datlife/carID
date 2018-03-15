@@ -34,6 +34,7 @@ class DataProvider(object):
                    data,
                    batch_size,
                    parse_record_fn,
+                   steps_per_epoch,
                    shuffle_buffer=200,
                    num_parallel_calls=4):
     """Create a input function"""
