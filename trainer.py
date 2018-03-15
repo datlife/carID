@@ -5,14 +5,112 @@ from __future__ import print_function
 
 import os
 import argparse
+import cv2
+import numpy as np
 import tensorflow as tf
 
-from carid.models import resnet_carid
-from carid.losses import triplet_loss
-from carid.dataset import VeRiDataset
-from carid.ProgressBar import ProgressBarHook
-
+import carid
+tf.logging.set_verbosity(tf.logging.INFO)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # or any {'0', '1', '2'}
+_RGB_MEAN = [123.68, 116.78, 103.94]
+
+#######################################
+# Data processing
+#######################################
+def _read_py_function(filename, mode):
+
+  # this runs x2 faster than tf.read_file
+  def cv2_read(img_path):
+    image = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
+    image = cv2.resize(image,  (224, 224)).astype(np.float32)
+    image = preprocess_fn(image, mode)
+    return image
+  image = tf.py_func(cv2_read, [filename], tf.float32)
+  image.set_shape([224, 224, 3])
+  return image
+
+def preprocess_fn(image, mode):
+  # mean subtraction
+  image -= np.expand_dims(np.expand_dims(_RGB_MEAN, 0), 0)
+  image /= 255.0
+  return image
+
+
+def main():
+  # ##########################
+  # Configure hyper-parameters
+  # ##########################
+  args = parse_args()
+  batch_size = args.batch_size
+  training_steps = args.steps
+  steps_per_epoch = args.steps_per_epoch
+  epochs_per_eval = 1
+  training_epochs = int(training_steps // steps_per_epoch)
+
+  cpu_cores = 8
+  multi_gpu = True
+  shuffle_buffer = batch_size * cpu_cores
+  # ########################
+  # Load VeRi dataset
+  # ########################
+  veri_dataset = carid.dataset.VeRiDataset(root_dir=args.dataset_dir).load()
+
+  # ########################
+  # Define a Classifier
+  # ########################
+  estimator = tf.estimator.Estimator(
+      model_fn=carid.resnet_carid(multi_gpu=multi_gpu),
+      model_dir=args.model_dir,
+      config=tf.estimator.RunConfig().replace(
+          save_checkpoints_steps=500,
+          save_summary_steps=500,
+          log_step_count_steps=10),
+      params={
+          'learning_rate': 0.001,
+          'weight_decay': 2e-4,
+          'optimizer': tf.train.AdamOptimizer,
+          'multi_gpu': multi_gpu,
+          'loss_function': carid.triplet_loss,
+          'margin': 0.2
+      })
+
+  # #########################
+  # Training/Eval
+  # #########################
+  tensors_to_log = ['train_loss']
+  for _ in range(training_epochs // epochs_per_eval):
+    train_data, eval_data = veri_dataset.split_training_data(
+        test_size=0.2,
+        shuffle=True)
+
+    estimator.train(
+        input_fn=lambda: veri_dataset.get_input_fn(
+            mode=tf.estimator.ModeKeys.TRAIN,
+            dataset=train_data,  # pylint: disable=cell-var-from-loop
+            batch_size=batch_size,
+            parse_fn=_read_py_function,
+            shuffle_buffer=shuffle_buffer,
+            num_parallel_calls=cpu_cores),
+        steps=steps_per_epoch * epochs_per_eval,
+        hooks=[carid.ProgressBarHook(
+            epochs=int(training_steps // steps_per_epoch),
+            steps_per_epoch=steps_per_epoch,
+            tensors_to_log=tensors_to_log)])
+
+    # print("\nStart evaluating...")
+    # eval_result = estimator.evaluate(
+    #     input_fn=lambda: veri_dataset.get_input_fn(
+    #         mode=tf.estimator.ModeKeys.EVAL,
+    #         dataset=eval_data,  # pylint: disable=cell-var-from-loop
+    #         batch_size=batch_size,
+    #         parse_fn=_read_py_function,
+    #         shuffle_buffer=None,
+    #         num_parallel_calls=cpu_cores),
+    #     steps=200)
+    # print(eval_result)
+
+  print("---- Training Completed ----")
+
 
 def parse_args():
   """Command line arguments"""
@@ -23,88 +121,17 @@ def parse_args():
       default=None, required=True)
   parser.add_argument(
       "--batch_size", help="Number of training instances for every iteration",
-      default=48, type=int)
+      default=128, type=int)
   parser.add_argument(
-    "--steps", help="Number of iteration per epochs",
-    default=30e3, type=int)
+      "--steps", help="Number of iteration per epochs",
+      default=30e3, type=int)
   parser.add_argument(
       "--steps_per_epoch", help="Number of iteration per epochs",
-      default=1e3, type=int)
+      default=200, type=int)
   parser.add_argument(
       "--model_dir", help="Path to store training log and trained model",
       default=None)
   return parser.parse_args()
-
-
-def main():
-  # ##########################
-  # Configure hyper-parameters
-  # ##########################
-  args = parse_args()
-  batch_size = args.batch_size
-
-  training_steps = args.steps
-  steps_per_epoch = args.steps_per_epoch
-  epochs_per_eval = 1
-  training_epochs = int(training_steps // steps_per_epoch)
-
-  cpu_cores = 8
-  multi_gpu = True
-  shuffle_buffer = 2048
-
-  # ########################
-  # Load VeRi dataset
-  # ########################
-  veri_dataset = VeRiDataset(root_dir=args.dataset_dir).load()
-
-  # ########################
-  # Define a Classifier
-  # ########################
-  estimator = tf.estimator.Estimator(
-      model_fn=resnet_carid(multi_gpu=multi_gpu),
-      model_dir=args.model_dir,
-      config=tf.estimator.RunConfig().replace(
-          save_checkpoints_steps=steps_per_epoch * epochs_per_eval,
-          save_summary_steps=200),
-      params={
-          'learning_rate': 0.01,
-          'optimizer': tf.train.AdamOptimizer,
-          'multi_gpu': multi_gpu,
-          'loss_function': triplet_loss,
-          'margin': 0.3
-      })
-
-  # #########################
-  # Training/Eval
-  # #########################
-  tensors_to_log = ['train_loss', 'train_ap_dist', 'train_an_dist']
-  for _ in range(training_epochs // epochs_per_eval):
-    train_data, eval_data = veri_dataset.split_training_data(
-        test_size=0.3,
-        shuffle=True)
-
-    estimator.train(
-        input_fn=lambda: veri_dataset.get_input_fn(
-            mode=tf.estimator.ModeKeys.TRAIN,
-            data=train_data,
-            batch_size=batch_size,
-            shuffle_buffer=shuffle_buffer,
-            num_parallel_calls=cpu_cores),
-        steps=steps_per_epoch * epochs_per_eval,
-        hooks=[ProgressBarHook(epochs=int(training_steps // steps_per_epoch),
-                               steps_per_epoch=steps_per_epoch,
-                               tensors_to_log=tensors_to_log)])
-
-    print("Start evaluating...")
-    estimator.evaluate(
-        input_fn=lambda: veri_dataset.get_input_fn(
-            mode=tf.estimator.ModeKeys.EVAL,
-            data=eval_data,
-            batch_size=batch_size,
-            shuffle_buffer=None,
-            num_parallel_calls=cpu_cores))
-
-  print("---- Training Completed ----")
 
 
 if __name__ == '__main__':
