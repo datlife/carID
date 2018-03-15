@@ -30,7 +30,7 @@ def triplet_loss(anchor, positive, negative, margin=0.2):
 def batch_hard_triplet_loss(embeddings, pids, margin=0.2):
   """Computes the batch-hard loss from arxiv.org/abs/1703.07737.
   Args:
-      dists (2D tensor): A square all-to-all distance matrix as given by cdist.
+      embeddings (2D tensor): outputs from feature_extractor [B, num_features] .
       pids (1D tensor): The identities of the entries in `batch`, shape (B,).
           This can be of any type that can be compared, thus also a string.
       margin: The value of the margin if a number, alternatively the string
@@ -39,43 +39,43 @@ def batch_hard_triplet_loss(embeddings, pids, margin=0.2):
   Returns:
       A 1D tensor of shape (B,) containing the loss value for each sample.
   """
-  with tf.name_scope("batch_hard"):
-    dists = _compute_pairwise_distance(embeddings, embeddings)
+  dists = _compute_pairwise_distance(embeddings, embeddings)
+  same_identity_mask = tf.equal(tf.expand_dims(pids, axis=1),
+                                tf.expand_dims(pids, axis=0))
 
-    same_identity_mask = tf.equal(tf.expand_dims(pids, axis=1),
-                                  tf.expand_dims(pids, axis=0))
+  negative_mask = tf.logical_not(same_identity_mask)
+  positive_mask = tf.logical_xor(same_identity_mask,
+                                 tf.eye(tf.shape(pids)[0], dtype=tf.bool))
 
-    negative_mask = tf.logical_not(same_identity_mask)
-    positive_mask = tf.logical_xor(same_identity_mask,
-                                   tf.eye(tf.shape(pids)[0], dtype=tf.bool))
+  hardest_positive = tf.reduce_max(
+      dists * tf.cast(positive_mask, tf.float32), axis=1)
 
-    hardest_positive = tf.reduce_max(
-        dists * tf.cast(positive_mask, tf.float32), axis=1)
+  hardest_negative = tf.map_fn(
+      lambda x: tf.reduce_min(tf.boolean_mask(x[0], x[1])),
+      (dists, negative_mask), tf.float32)
 
-    hardest_negative = tf.map_fn(
-        lambda x: tf.reduce_min(tf.boolean_mask(x[0], x[1])),
-        (dists, negative_mask), tf.float32)
+  losses = hardest_positive - hardest_negative
+  if isinstance(margin, numbers.Real):
+    losses = tf.maximum(margin + losses, 0.0)
 
-    losses = hardest_positive - hardest_negative
-    if isinstance(margin, numbers.Real):
-      losses = tf.maximum(margin + losses, 0.0)
+  elif margin == 'soft':
+    losses = tf.nn.softplus(losses)
 
-    elif margin == 'soft':
-      losses = tf.nn.softplus(losses)
+  else:
+    raise ValueError(
+        'margin can be either a float or `soft`')
 
-    else:
-      raise ValueError(
-          'margin can be either a float or `soft`')
+  # Count the number of active entries
+  num_active = tf.reduce_sum(tf.cast(tf.greater(losses, 1e-5), tf.float32))
+  loss = tf.reduce_mean(losses)
 
-    # Count the number of active entries, and compute the total batch loss.
-    num_active = tf.reduce_sum(tf.cast(tf.greater(losses, 1e-5), tf.float32))
-    loss = tf.reduce_mean(losses)
+  return loss, hardest_positive, hardest_negative, num_active
 
-    return loss, hardest_positive, hardest_negative, num_active
 
 def _compute_pairwise_distance(a, b, metric='euclidean'):
   """Similar to scipy.spatial's cdist, but symbolic.
-  The currently supported metrics can be listed as `cdist.supported_metrics` and are:
+  The currently supported metrics can be listed as `cdist.supported_metrics`
+  and are:
       - 'euclidean', although with a fudge-factor epsilon.
       - 'sqeuclidean', the squared euclidean.
       - 'cityblock', the manhattan or L1 distance.

@@ -1,5 +1,5 @@
 import dataset as dataset
+import losses as losses
 from .models import resnet_carid
-from .losses import triplet_loss
 from .ProgressBar import ProgressBarHook
 import utils as utils

@@ -55,35 +55,24 @@ class VeRiDataset(DataProvider):
       dataset:
       batch_size:
       parse_fn:
+      steps_per_epoch:
       shuffle_buffer:
       num_parallel_calls:
 
     Returns:
 
     """
-
     train_eval_gen = self.batch_hard_generator(
         data_frames=dataset,
         mode=mode,
         batch_size=batch_size,
         samples_per_class=8)
-
-    training_instances = [next(train_eval_gen) for i in range(steps_per_epoch)]
+    training_instances = [next(train_eval_gen) for _ in range(steps_per_epoch)]
     paths, labels = zip(*training_instances)
-    paths = [a for i in paths for a in i]
-    labels = [a for i in labels for a in i]
+    paths = [i for p in paths for i in p]
+    labels = [i for l in labels for i in l]
 
     dataset = tf.data.Dataset.from_tensor_slices((paths, labels))
-
-    # dataset = tf.data.Dataset.from_generator(
-    #   generator=lambda: self.batch_hard_generator(
-    #       data_frames=dataset,
-    #       mode=mode,
-    #       batch_size=batch_size,
-    #       samples_per_class=8),
-    #   output_types=(tf.string, tf.int64),
-    #   output_shapes=(tf.TensorShape([]), tf.TensorShape([])))
-
     dataset = dataset.prefetch(batch_size)
     dataset = dataset.map(
         lambda filename, label: parse_fn(filename, label, mode),
