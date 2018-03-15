@@ -29,8 +29,10 @@ def resnet50_model_fn(features, labels, mode, params):
     print('Imagenet weights have been loaded into Resnet.')
     _INIT_WEIGHTS = False  # only init one time
 
-  outputs = model(features)
-  loss = tf.reduce_mean(outputs)
+  embeddings = model(features)
+
+  loss, distance_ap, distance_an, num_active = params['loss_fn'](
+    embeddings, labels, params['margin'])
 
   if mode == tf.estimator.ModeKeys.TRAIN:
     global_step = tf.train.get_or_create_global_step()
@@ -51,9 +53,15 @@ def resnet50_model_fn(features, labels, mode, params):
   tf.identity(loss, 'train_loss')
   tf.summary.scalar('train_loss', loss)
 
-  predictions = {
-    'out': outputs
-  }
+  dist_ap = tf.reduce_sum(distance_ap)
+  tf.identity(dist_ap, 'dist_ap')
+  tf.summary.scalar('dist_ap', dist_ap)
+
+  dist_an = tf.reduce_sum(distance_an)
+  tf.identity(dist_an, 'dist_an')
+  tf.summary.scalar('dist_an', dist_an)
+
+  predictions = {'embeddings': embeddings}
   return tf.estimator.EstimatorSpec(
       mode=mode,
       predictions=predictions,
