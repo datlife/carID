@@ -14,23 +14,50 @@ import tensorflow as tf
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # or any {'0', '1', '2'}
 _RGB_MEAN = [123.68, 116.78, 103.94]
 
+def parse_args():
+  """Command line arguments"""
+  parser = argparse.ArgumentParser(
+      description="Train a Car Re-identification model")
+  parser.add_argument(
+      "--dataset_dir", help="Path to dataset directory.",
+      default=None, required=True)
+  parser.add_argument(
+      "--batch_size", help="Number of training instances for every iteration",
+      default=64, type=int)
+  parser.add_argument(
+      "--steps", help="Number of iteration per epochs",
+      default=30e3, type=int)
+  parser.add_argument(
+      "--steps_per_epoch", help="Number of iteration per epochs",
+      default=500, type=int)
+  parser.add_argument(
+      "--model_dir", help="Path to store training log and trained model",
+      default=None)
+  return parser.parse_args()
+
+
 #######################################
 # Data processing
 #######################################
-def _read_py_function(filename, label, mode):
+def _read_py_function(filename, label, mode, size=224):
   def cv2_read(img_path):   # this runs x2 faster than tf.read_file
-    image = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
-    image = cv2.resize(image,  (224, 224)).astype(np.float32)
-    image = preprocess_fn(image, mode)
-    return image
+    img = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
+    img = cv2.resize(img,  (size, size)).astype(np.float32)
+    img = preprocess_fn(img, mode)
+    return img
   image = tf.py_func(cv2_read, [filename], tf.float32)
-  image.set_shape([224, 224, 3])
+  image.set_shape([size, size, 3])
   return image, label
 
 # @TODO: data augmentation
+# @TODO: various batch_size, image_size
 def preprocess_fn(image, mode):
   image -= np.expand_dims(np.expand_dims(_RGB_MEAN, 0), 0)
   image /= 255.0
+
+  if mode == tf.estimator.ModeKeys.TRAIN:
+    image = image  # data augmentation
+
   return image
 
 
@@ -65,18 +92,16 @@ def main():
           log_step_count_steps=steps_per_epoch),
       params={
           'loss_fn': carid.losses.batch_hard_triplet_loss,
-          'margin': 'soft',
-          'learning_rate': 0.001,
-          'weight_decay': 2e-4,
-          'optimizer': tf.train.AdamOptimizer,
-          'multi_gpu': multi_gpu,
-      })
-
+          'margin': 0.5,
+          'optimizer': tf.train.AdamOptimizer(0.001),
+          'weight_decay': 5e-4,
+          'multi_gpu': multi_gpu})
   # #########################
   # Training/Eval
   # #########################
-  tensors_to_log = ['train_loss', 'dist_ap', 'dist_an']
+  tensors_to_log = ['train_loss', 'dist_ap', 'dist_an', 'num_active']
   for _ in range(training_epochs // epochs_per_eval):
+    # cross-fold validation
     train_data, eval_data = veri_dataset.split_training_data(
         test_size=0.2,
         shuffle=True)
@@ -109,28 +134,6 @@ def main():
         steps=200)
     print(eval_result)
   print("---- Training Completed ----")
-
-
-def parse_args():
-  """Command line arguments"""
-  parser = argparse.ArgumentParser(
-      description="Train a Car Re-identification model")
-  parser.add_argument(
-      "--dataset_dir", help="Path to dataset directory.",
-      default=None, required=True)
-  parser.add_argument(
-      "--batch_size", help="Number of training instances for every iteration",
-      default=48, type=int)
-  parser.add_argument(
-      "--steps", help="Number of iteration per epochs",
-      default=30e3, type=int)
-  parser.add_argument(
-      "--steps_per_epoch", help="Number of iteration per epochs",
-      default=500, type=int)
-  parser.add_argument(
-      "--model_dir", help="Path to store training log and trained model",
-      default=None)
-  return parser.parse_args()
 
 
 if __name__ == '__main__':
