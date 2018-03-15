@@ -1,14 +1,29 @@
 r""" Triplet Loss Function"""
 import tensorflow as tf
 
+
+def batch_hard_triplet_loss(samples, labels, margin=0.2):
+  """It is an improved version of Triplet Loss. Particularly, the author claims
+  that  performing `hard mining` on a batch along with soft-margin
+  allows the network to learn better.
+
+  Args:
+    samples:
+    labels:
+    margin:
+
+  Returns:
+
+  """
+
 def triplet_loss(anchor, positive, negative, margin=0.2):
-  """Triplet Loss Implementation
+  """Vanilla Triplet Loss Implementation
 
   TripletLoss = Max(0.0, d_ap - d_an + margin)
 
   whereas:
-    * d_ap: measured distance between anchor and positive features
-    * d_an: measured distance between anchor and negative features
+    * d_ap: measured distance between anchor and positive embeddings
+    * d_an: measured distance between anchor and negative embeddings
     * margin: a hyper-parameter (think SVM)
   Args:
    margin: float
