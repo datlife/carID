@@ -20,10 +20,8 @@ def triplet_loss(anchor, positive, negative, margin=0.2):
   """
   distance_ap = tf.reduce_sum(tf.square(anchor - positive), 1)
   distance_an = tf.reduce_sum(tf.square(anchor - negative), 1)
-
   loss = tf.maximum(0.0, distance_ap - distance_an + margin)
   loss = tf.reduce_mean(loss)
-
   return loss
 
 
@@ -49,26 +47,22 @@ def batch_hard_triplet_loss(embeddings, pids, margin=0.2):
 
   hardest_positive = tf.reduce_max(
       dists * tf.cast(positive_mask, tf.float32), axis=1)
-
   hardest_negative = tf.map_fn(
       lambda x: tf.reduce_min(tf.boolean_mask(x[0], x[1])),
       (dists, negative_mask), tf.float32)
 
   losses = hardest_positive - hardest_negative
+
   if isinstance(margin, numbers.Real):
     losses = tf.maximum(margin + losses, 0.0)
-
   elif margin == 'soft':
     losses = tf.nn.softplus(losses)
-
   else:
     raise ValueError(
         'margin can be either a float or `soft`')
 
-  # Count the number of active entries
   num_active = tf.reduce_sum(tf.cast(tf.greater(losses, 1e-5), tf.float32))
   loss = tf.reduce_mean(losses)
-
   return loss, hardest_positive, hardest_negative, num_active
 
 

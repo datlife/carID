@@ -79,25 +79,20 @@ class VeRiDataset(DataProvider):
         num_parallel_calls=8)
     dataset = dataset.batch(batch_size)
     dataset = dataset.prefetch(1)
-
     return dataset
 
   def batch_hard_generator(self, data_frames, mode, batch_size, samples_per_class=8):
     """ Sample P classes, each class contains K samples.  """
-
     data_dir = os.path.join(self.root_dir, VeRiDataset.TRAIN_DIR)
     data_frames['imageName'] = data_frames['imageName'].apply(
         lambda i: os.path.join(data_dir, i))
-
     groups = data_frames.groupby('vehicleID')
     groups_name = groups.groups.keys()
     num_classes = batch_size // samples_per_class
-
     while True:
       ids = random.sample(groups_name, num_classes)
       df = pd.concat([groups.get_group(idx).sample(
           samples_per_class, replace=True)
           for idx in ids])
-
       yield list(df['imageName']), list(df['vehicleID'])
 

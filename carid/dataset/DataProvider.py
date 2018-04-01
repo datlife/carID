@@ -31,9 +31,9 @@ class DataProvider(object):
   @abc.abstractmethod
   def get_input_fn(self,
                    mode,
-                   data,
+                   dataset,
                    batch_size,
-                   parse_record_fn,
+                   parse_fn,
                    steps_per_epoch,
                    shuffle_buffer=200,
                    num_parallel_calls=4):

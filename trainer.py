@@ -96,17 +96,19 @@ def main():
           'optimizer': tf.train.AdamOptimizer(0.001),
           'weight_decay': 5e-4,
           'multi_gpu': multi_gpu})
+
   # #########################
   # Training/Eval
   # #########################
-  tensors_to_log = ['train_loss', 'dist_ap', 'dist_an', 'num_active']
+  tensors_to_log = ['loss', 'ap_dist', 'an_dist', 'num_active']
+
   for _ in range(training_epochs // epochs_per_eval):
-    # cross-fold validation
+    # K-fold cross validation
     train_data, eval_data = veri_dataset.split_training_data(
         test_size=0.2,
         shuffle=True)
 
-    estimator.train(
+    train_spec = tf.estimator.TrainSpec(
         input_fn=lambda: veri_dataset.get_input_fn(
             mode=tf.estimator.ModeKeys.TRAIN,
             dataset=train_data,  # pylint: disable=cell-var-from-loop
@@ -115,14 +117,13 @@ def main():
             steps_per_epoch=steps_per_epoch * epochs_per_eval,
             shuffle_buffer=shuffle_buffer,
             num_parallel_calls=cpu_cores),
-        steps=steps_per_epoch * epochs_per_eval,
+        max_steps=steps_per_epoch * epochs_per_eval,
         hooks=[carid.ProgressBarHook(
             epochs=int(training_steps // steps_per_epoch),
             steps_per_epoch=steps_per_epoch,
             tensors_to_log=tensors_to_log)])
 
-    print("\nStart evaluating...")
-    eval_result = estimator.evaluate(
+    eval_spec = tf.estimator.EvalSpec(
         input_fn=lambda: veri_dataset.get_input_fn(
             mode=tf.estimator.ModeKeys.EVAL,
             dataset=eval_data,  # pylint: disable=cell-var-from-loop
@@ -132,7 +133,12 @@ def main():
             shuffle_buffer=None,
             num_parallel_calls=cpu_cores),
         steps=200)
-    print(eval_result)
+
+    tf.estimator.train_and_evaluate(
+        estimator=estimator,
+        train_spec=train_spec,
+        eval_spec=eval_spec)
+
   print("---- Training Completed ----")
 
 
